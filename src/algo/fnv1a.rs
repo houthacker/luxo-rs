@@ -64,7 +64,7 @@ impl FNV1aIterator for &[u8] {
 }
 
 #[doc(hidden)]
-// This is a private macro to prevent code duplication in the `FNV1aIterator` implementations.
+// This is a private macro to prevent code duplication in some `FNV1aIterator` implementations.
 macro_rules! fnv1a_iterate {
     () => {
         /// Appends the little-endian bytes from this value to the state of `algorithm`.
