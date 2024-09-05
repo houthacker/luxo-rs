@@ -1,3 +1,4 @@
+//! This module contains specialized versions of generic search algorithms that are used for B+Tree operations.
 use std::cmp::Ordering;
 
 #[doc(hidden)]

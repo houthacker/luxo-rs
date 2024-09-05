@@ -1,6 +1,6 @@
-/// FNV1-a is a fast, non-cryptographic hashing algorithm.
-///
-/// A description of the internals of the FNV1a hash can be found on [Wikipedia](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function).
+//! FNV1-a is a fast, non-cryptographic hashing algorithm.
+//!
+//! A description of the internals of the FNV1a hash can be found on [Wikipedia](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function).
 pub(crate) struct FNV1a {
     /// The current hash value.
     state: u64,
