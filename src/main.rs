@@ -1,13 +1,16 @@
 #![warn(missing_docs)]
 
-//! `luxo_rs`, a database engine that sheds light on any query.
+//! `Luxor`, a database engine that sheds light on any query.
 
 use tracing::{event, Level};
 use tracing_subscriber;
 
 #[doc(hidden)]
-/// This module contains all in-memory algorithm implementations used by `luxo_rs`.
+/// This module contains all in-memory algorithm implementations used by `luxor`.
 pub(crate) mod algo;
+
+/// This module contains all I/O related functionality.
+pub mod io;
 
 #[tracing::instrument]
 fn main() {
@@ -17,6 +20,14 @@ fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber)
         .expect("Setting the global subscriber here should be the first attempt to do so, and therefore be successful.");
+
+    // At this time, only linux is supported. The reason for this is that
+    // Open File Description Locks are non-POSIX. These lock types are used by `luxor` to ensure
+    // more flexibility: these locks are associated with an open file description instead of with
+    // a process.
+    if std::env::consts::OS != "linux" {
+        panic!("At this time, linux is the only OS supported by luxor.")
+    }
 
     event!(Level::INFO, "luxo_rs started.")
 }
