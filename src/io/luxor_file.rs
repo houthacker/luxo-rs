@@ -138,7 +138,7 @@ impl FileSerial {
 }
 
 /// When the last reference to a [FileSerial] is removed, that serial must be removed from the
-/// global list [SERIALS] to prevent entries without a (valid) value.
+/// global list to prevent entries without a (valid) value.
 impl Drop for FileSerial {
     #[tracing::instrument]
     fn drop(&mut self) {
