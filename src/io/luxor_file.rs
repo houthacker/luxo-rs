@@ -1,10 +1,13 @@
+use anyhow::Result;
 use std::cmp::Ordering;
+use std::fs;
 use std::fs::File;
 use std::os::linux::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
-use std::{fs, io};
-use tracing::{event, Level};
+use tracing::{event, span, Level};
+
+use crate::io::io_error::IOError;
 
 /// A [LuxorFile] is used to operate on B+Tree- and WAL files.
 ///
@@ -99,8 +102,14 @@ impl FileSerial {
     /// This method will return an error in at least to following cases:
     /// * The user lacks permissions to retrieve the metadata of `path`.
     /// * The `path` does not exist.
-    pub fn find<P: AsRef<Path>>(path: P) -> Result<Arc<FileSerial>, io::Error> {
-        let meta = fs::metadata(path.as_ref())?;
+    pub fn find<P: AsRef<Path>>(path: P) -> Result<Arc<FileSerial>, IOError> {
+        let span = span!(Level::TRACE, "find");
+        let _guard = span.enter();
+
+        let meta = fs::metadata(path.as_ref()).map_err(|e| {
+            event!(Level::WARN, "Failed to retrieve file metadata: {:?}", e);
+            e
+        })?;
         let key = meta.st_ino();
 
         match find_existing_serial(key) {
@@ -165,10 +174,9 @@ mod tests {
 
     #[test]
     fn find_serial_of_non_existing_path() {
-        let result = FileSerial::find(Path::new("/tmp/luxor_do_not_exist")).map_err(|e| e.kind());
-        assert_eq!(
-            result.err(),
-            Some(io::ErrorKind::NotFound),
+        let result = FileSerial::find(Path::new("/tmp/luxor_do_not_exist"));
+        assert!(
+            matches!(result.err(), Some(_)),
             "Finding the FileSerial of a non-existing path should always fail."
         );
     }
