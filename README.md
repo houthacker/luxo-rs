@@ -1,5 +1,5 @@
 <p style="text-align: center">
-    <img width="200" alt="Luxor logo" src="extra/promo/logo-small.jpeg">
+    <img width="256" alt="Luxor logo" src="extra/promo/logo-small.png">
 </p>
 <h1 style="text-align: center">Luxor - A cross-platform database engine with an intuitive API</h1>
 
