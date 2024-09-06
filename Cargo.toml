@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+cfg-if = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 thiserror = "1.0"

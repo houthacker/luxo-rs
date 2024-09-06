@@ -2,4 +2,8 @@
 pub mod luxor_file;
 
 /// This module exposes common I/O error types.
-pub mod io_error;
+pub mod errors;
+
+/// This module contains OS-specific trait implementations.
+#[doc(hidden)]
+mod os;

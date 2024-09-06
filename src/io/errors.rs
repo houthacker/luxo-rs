@@ -1,0 +1,55 @@
+use nix::errno::Errno;
+use std::error::Error;
+use std::fmt::Debug;
+use std::fmt::Formatter;
+use std::io::ErrorKind;
+
+/// Generic error type for I/O related failures.
+#[derive(thiserror::Error)]
+pub enum IOError {
+    #[error("Access denied")]
+    AccessDeniedError(#[source] std::io::Error),
+
+    #[error("File not found")]
+    FileNotFoundError(#[source] std::io::Error),
+
+    #[error("Thread interrupted")]
+    Interrupted(#[source] std::io::Error),
+
+    #[error("Generic I/O error")]
+    Generic(#[source] std::io::Error),
+}
+
+impl From<std::io::Error> for IOError {
+    fn from(value: std::io::Error) -> Self {
+        match value.kind() {
+            ErrorKind::PermissionDenied => Self::AccessDeniedError(value),
+            ErrorKind::NotFound => Self::FileNotFoundError(value),
+            ErrorKind::Interrupted => Self::Interrupted(value),
+            _ => Self::Generic(value),
+        }
+    }
+}
+
+impl From<Errno> for IOError {
+    fn from(value: Errno) -> Self {
+        IOError::from(std::io::Error::from(value))
+    }
+}
+
+fn error_chain_fmt(error: &impl Error, fmt: &mut Formatter<'_>) -> std::fmt::Result {
+    writeln!(fmt, "{}\n", error)?;
+    let mut current = error.source();
+    while let Some(cause) = current {
+        writeln!(fmt, "Caused by:\n\t{}", cause)?;
+        current = cause.source();
+    }
+
+    Ok(())
+}
+
+impl Debug for IOError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}

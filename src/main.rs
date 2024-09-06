@@ -10,7 +10,7 @@ use tracing_subscriber;
 pub(crate) mod algo;
 
 /// This module contains all I/O related functionality.
-pub mod io;
+pub(crate) mod io;
 
 #[tracing::instrument]
 fn main() {
@@ -25,7 +25,7 @@ fn main() {
     // Open File Description Locks are non-POSIX. These lock types are used by `luxor` to ensure
     // more flexibility: these locks are associated with an open file description instead of with
     // a process.
-    if std::env::consts::OS != "linux" {
+    if !cfg!(target_os = "linux") {
         panic!("At this time, linux is the only OS supported by luxor.")
     }
 

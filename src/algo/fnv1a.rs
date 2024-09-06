@@ -151,11 +151,19 @@ mod tests {
     }
 
     #[test]
-    fn iterate_bool() {
+    fn iterate_bool_false() {
         let b = false;
         let mut instance = FNV1a::create_new();
 
         assert_eq!(b.fnv1a_iterate(&mut instance).state(), 0x4b91cd1c0e0a959c);
+    }
+
+    #[test]
+    fn iterate_bool_true() {
+        let b = true;
+        let mut instance = FNV1a::create_new();
+
+        assert_eq!(b.fnv1a_iterate(&mut instance).state(), 0x4665ece9e18834de);
     }
 
     #[test]

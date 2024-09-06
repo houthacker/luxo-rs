@@ -133,6 +133,16 @@ mod tests {
     }
 
     #[test]
+    fn binary_search_empty_vec() {
+        let vec = Vec::<S>::new();
+        let needle = 3;
+        assert_eq!(
+            binary_search(&vec[..], 0, 0, &needle, |t: &S| -> &i32 { &t.value }),
+            None
+        );
+    }
+
+    #[test]
     fn binary_search_middle() {
         let vec = vec![
             S { value: 1 },
@@ -213,6 +223,17 @@ mod tests {
     }
 
     #[test]
+    fn greatest_not_exceeding_empty_vec() {
+        let vec = Vec::<S>::new();
+        let needle = 3;
+
+        assert_eq!(
+            greatest_not_exceeding(&vec[..], 0, 0, &needle, |t: &S| -> &i32 { &t.value }),
+            None
+        );
+    }
+
+    #[test]
     fn greatest_not_exceeding_middle() {
         let vec = vec![
             S { value: 1 },
@@ -288,6 +309,17 @@ mod tests {
             greatest_not_exceeding(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
                 &t.value
             }),
+            None
+        );
+    }
+
+    #[test]
+    fn next_largest_empty_ved() {
+        let vec = Vec::<S>::new();
+
+        let needle = 3;
+        assert_eq!(
+            next_largest(&vec[..], 0, 0, &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }
