@@ -5,7 +5,7 @@ use std::os::unix::fs::FileExt;
 impl ReadableFile for LuxorFile {
     /// Reads `buf.len()` bytes from this file into `buf`, starting at `offset` in this file.<br>
     /// Returns the number of bytes read.<br>
-    /// Note that similar to [io::Read::read], it is not an error to return with a short read.
+    /// Note that similar to [std::io::Read::read], it is not an error to return with a short read.
     ///
     /// ### Parameters
     /// * `buf` - The buffer to read into.
@@ -29,7 +29,7 @@ impl WritableFile for LuxorFile {
     /// * "End of file" has been reached.
     /// When writing beyond the end of the file, the file is appropriately extended and the
     /// intermediate bytes are initialized with the value 0.<br>
-    /// Note that similar to [io::Write::write], it is not an error to return with a short write.
+    /// Note that similar to [std::io::Write::write], it is not an error to return with a short write.
     ///
     /// ### Parameters
     /// * `buf` - The buffer to write to the file.
