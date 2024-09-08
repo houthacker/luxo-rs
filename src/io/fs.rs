@@ -1,4 +1,5 @@
 use crate::io::errors::IOError;
+use crate::io::os::unix::linux::fs::OFDLockGuard;
 use anyhow::Result;
 use std::cmp::Ordering;
 use std::fs::{File, OpenOptions};
@@ -173,12 +174,20 @@ pub trait FileRwLock {
     /// this method will retry until either the lock is obtained, or an error occurs.
     fn read(&self) -> Result<Self::Guard, IOError>;
 
+    /// Tries to obtain a shared lock on the resource as described by this [FileRwLock]. If the
+    /// lock cannot be obtained immediately, this method returns [None].
+    fn try_read(&self) -> Result<Option<OFDLockGuard>, IOError>;
+
     /// Obtains an exclusive lock on the resource as described by this [FileRwLock], and blocks until
     /// either the lock is obtained or an error occurs.
     ///
     /// *Note*: If the current thread is interrupted while waiting to acquire the lock,
     /// this method will retry until either the lock is obtained, or an error occurs.
     fn write(&self) -> Result<Self::Guard, IOError>;
+
+    /// Tries to obtain an exclusive lock on the resource as described by this [FileRwLock]. If the
+    /// lock cannot be obtained immediately, this method returns [None].
+    fn try_write(&self) -> Result<Option<OFDLockGuard>, IOError>;
 }
 
 /// A [FileRwLockGuard] is an RAII guard that will release the owning thread's (read- or write)
@@ -390,5 +399,6 @@ mod tests {
         let luxor_file = result.unwrap();
         let file_path = luxor_file.path();
         assert_eq!(file_path, <TempPath as AsRef<Path>>::as_ref(&path));
+        assert_eq!(luxor_file.size().unwrap(), 0);
     }
 }

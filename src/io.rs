@@ -1,5 +1,5 @@
 /// A `LuxorFile` is used to operate on B+Tree- and WAL files.
-pub mod luxor_file;
+pub mod fs;
 
 /// This module exposes common I/O error types.
 pub mod errors;

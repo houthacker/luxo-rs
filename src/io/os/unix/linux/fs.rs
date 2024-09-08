@@ -1,5 +1,5 @@
 use crate::io::errors::IOError;
-use crate::io::luxor_file::{
+use crate::io::fs::{
     FileKeyResolver, FileRwLock, FileRwLockGuard, FileSerial, LockableFile, LuxorFile,
 };
 use nix::errno::Errno;
@@ -58,26 +58,18 @@ pub struct OpenFileDescriptorLock {
 }
 
 impl OpenFileDescriptorLock {
-    /// Tries to obtain the requested lock type.
+    /// Obtains the requested lock type. This method blocks until either the lock has been obtained,
+    /// or an error occurs.
     ///
     /// ### Parameters
-    /// * `descriptor` - A reference to a `flock` struct containing the description of the requested lock.
-    /// * `blocking` - `true` if the request must block, `false` if non-blocking is required.
+    /// * `description` - A reference to a `flock` struct containing the description of the requested lock.
     ///
-    /// *Note*: If this is a blocking request and the current thread is interrupted while waiting
-    /// to acquire the lock, this method will retry until either the lock is obtained, or an
-    /// error occurs.
+    /// *Note*: If the current thread is interrupted while waiting to acquire the lock,
+    /// this method will retry until either the lock is obtained or an error occurs.
     #[doc(hidden)]
-    fn lock(&self, descriptor: &flock, blocking: bool) -> anyhow::Result<OFDLockGuard, IOError> {
+    fn lock(&self, description: &flock) -> anyhow::Result<OFDLockGuard, IOError> {
         loop {
-            match fcntl(
-                self.fd,
-                if blocking {
-                    FcntlArg::F_OFD_SETLKW(descriptor)
-                } else {
-                    FcntlArg::F_OFD_SETLK(descriptor)
-                },
-            ) {
+            match fcntl(self.fd, FcntlArg::F_OFD_SETLKW(description)) {
                 Ok(_) => {
                     break Ok(OFDLockGuard {
                         fd: self.fd,
@@ -87,8 +79,7 @@ impl OpenFileDescriptorLock {
                     })
                 }
                 Err(errno) => match errno {
-                    // If we're interrupted while waiting to acquire a lock, retry. This only
-                    // happens with `FcntlArg::F_OFD_SETLKW`.
+                    // If we're interrupted while waiting to acquire a lock, retry.
                     Errno::EINTR => continue,
 
                     // For all other errors, users must decide themselves whether a retry
@@ -96,6 +87,31 @@ impl OpenFileDescriptorLock {
                     _ => break Err(IOError::from(errno)),
                 },
             }
+        }
+    }
+
+    /// Tries to obtain the requested lock type. This method returns immediately if the lock cannot
+    /// be obtained.
+    ///
+    /// ### Parameters
+    /// * `description` - A reference to a `flock` struct containing the description of the requested lock.
+    #[doc(hidden)]
+    fn try_lock(&self, description: &flock) -> Result<Option<OFDLockGuard>, IOError> {
+        match fcntl(self.fd, FcntlArg::F_OFD_SETLK(description)) {
+            Ok(_) => Ok(Some(OFDLockGuard {
+                fd: self.fd,
+                whence: self.whence,
+                start: self.start,
+                length: self.length,
+            })),
+            Err(errno) => match errno {
+                // If a lock cannot be obtained immediately, fcntl returns -1 and sets
+                // errno to EAGAIN. This is not an error scenario, so return Ok with no lock.
+                Errno::EAGAIN => Ok(None),
+
+                // All other errno values are errors however.
+                _ => Err(IOError::from(errno)),
+            },
         }
     }
 }
@@ -118,7 +134,20 @@ impl FileRwLock for OpenFileDescriptorLock {
             l_pid: 0, // required for OFD locks
         };
 
-        self.lock(&flock, true)
+        self.lock(&flock)
+    }
+
+    /// Tries to obtain a shared lock on the resource as described by this [OpenFileDescriptorLock].
+    fn try_read(&self) -> anyhow::Result<Option<OFDLockGuard>, IOError> {
+        let flock = flock {
+            l_type: F_RDLCK as c_short,
+            l_whence: SEEK_SET as c_short,
+            l_start: self.start,
+            l_len: self.length,
+            l_pid: 0, // required for OFD locks
+        };
+
+        self.try_lock(&flock)
     }
 
     /// Obtains an exclusive lock on the resource as described by this [OpenFileDescriptorLock], and blocks until
@@ -136,7 +165,20 @@ impl FileRwLock for OpenFileDescriptorLock {
             l_pid: 0, // required for OFD locks
         };
 
-        self.lock(&flock, true)
+        self.lock(&flock)
+    }
+
+    /// Tries to obtain an exclusive lock on the resource as described by this [OpenFileDescriptorLock].
+    fn try_write(&self) -> anyhow::Result<Option<OFDLockGuard>, IOError> {
+        let flock = flock {
+            l_type: F_WRLCK as c_short,
+            l_whence: SEEK_SET as c_short,
+            l_start: self.start,
+            l_len: self.length,
+            l_pid: 0, // required for OFD locks
+        };
+
+        self.try_lock(&flock)
     }
 }
 
@@ -191,5 +233,77 @@ impl Drop for OFDLockGuard {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::OpenOptions;
+    use tempfile::*;
+
+    #[test]
+    fn ensure_two_luxor_files_dont_share_fds() {
+        let path = NamedTempFile::new().unwrap().into_temp_path();
+        let file_one = LuxorFile::open(&path, &OpenOptions::new().read(true)).unwrap();
+        let file_two = LuxorFile::open(&path, &OpenOptions::new().read(true)).unwrap();
+
+        assert_ne!(
+            file_one.file.as_raw_fd(),
+            file_two.file.as_raw_fd(),
+            "Any LuxorFile opening the same path must obtain its own unique file descriptor"
+        );
+    }
+
+    #[test]
+    fn ofd_cannot_read_while_writing() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Open a file and acquire the write lock.
+        let path = Arc::new(NamedTempFile::new().unwrap().into_temp_path());
+        let file =
+            LuxorFile::open(path.as_ref(), &OpenOptions::new().read(true).write(true)).unwrap();
+        let _guard = file.file_lock(0, 1).write().unwrap();
+
+        // Then create a thread that tries to acquire a read lock (which must fail).
+        let p = Arc::clone(&path);
+        thread::spawn(move || {
+            let file = LuxorFile::open(p.as_ref(), &OpenOptions::new().read(true)).unwrap();
+            let lock = file.file_lock(0, 1);
+
+            assert!(
+                matches!(lock.try_read(), Ok(None)),
+                "When an OFD write lock is held, a read lock cannot be acquired."
+            );
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn ofd_cannot_write_while_reading() {
+        use std::sync::Arc;
+        use std::thread;
+
+        // Open a file and acquire a read lock.
+        let path = Arc::new(NamedTempFile::new().unwrap().into_temp_path());
+        let file = LuxorFile::open(path.as_ref(), &OpenOptions::new().read(true)).unwrap();
+        let _guard = file.file_lock(0, 1).read().unwrap();
+
+        // Then create a thread that tries to acquire a write lock (which must fail).
+        let p = Arc::clone(&path);
+        thread::spawn(move || {
+            let file =
+                LuxorFile::open(p.as_ref(), &OpenOptions::new().read(true).write(true)).unwrap();
+            let lock = file.file_lock(0, 1);
+
+            assert!(
+                matches!(lock.try_write(), Ok(None)),
+                "When an OFD read lock is held, a write lock cannot be acquired."
+            );
+        })
+        .join()
+        .unwrap();
     }
 }

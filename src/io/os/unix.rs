@@ -1,5 +1,5 @@
 /// Unix-specific I/O related trait implementations.
-mod luxor_file;
+mod fs;
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
