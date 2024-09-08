@@ -1,7 +1,5 @@
 use crate::fs::errors::IOError;
-use crate::fs::{
-    FileKeyResolver, FileRwLock, FileRwLockGuard, FileSerial, LockableFile, LuxorFile,
-};
+use crate::fs::{FileKeyResolver, FileRwLock, FileSerial, LockableFile, LuxorFile};
 use nix::errno::Errno;
 use nix::fcntl::{fcntl, FcntlArg};
 use nix::libc::{c_short, flock, F_RDLCK, F_UNLCK, F_WRLCK, SEEK_SET};
@@ -194,8 +192,6 @@ pub struct OFDLockGuard {
     start: i64,
     length: i64,
 }
-
-impl FileRwLockGuard for OFDLockGuard {}
 
 /// The purpose of an [OFDLockGuard] is solely to offer RAII-style synchronization management.
 /// When an [OFDLockGuard] is dropped, the lock is released.

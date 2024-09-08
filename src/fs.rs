@@ -169,7 +169,13 @@ pub trait LockableFile {
 /// An [FileRwLock] is an advisory lock on the related file. Whether this lock is associated with a
 /// process or for example with the file description is implementation-dependent.
 pub trait FileRwLock {
-    type Guard: FileRwLockGuard;
+    /// The guard type that is returned when a lock has been obtained.
+    /// Implementations must release the lock in their [Drop::drop] implementation, which then enables
+    /// RAII-style locks.
+    ///
+    /// *Note*: Implementations must ensure that all errors are suppressed when they are dropped
+    /// and instead log an error message when an error occurs.
+    type Guard: Drop;
 
     /// Obtains a shared lock on the resource as described by this [FileRwLock], and blocks until
     /// either the lock is obtained or an error occurs.
@@ -194,19 +200,26 @@ pub trait FileRwLock {
     fn try_write(&self) -> Result<Option<Self::Guard>, IOError>;
 }
 
-/// A [FileRwLockGuard] is an RAII guard that will release the owning thread's (read- or write)
-/// lock when dropped.
-///
-/// *Note*: Implementations must ensure that all errors are suppressed when they are dropped
-/// and instead log an error message when an error occurs.
-#[allow(drop_bounds)] // This ensures that all FileRwLockGuard implementations also implement Drop.
-pub trait FileRwLockGuard: Drop {}
-
+/// Trait to resolve a unique identifier for a given [AsRef<Path>]. This allows users to resolve unique files to a
+/// single unique value, regardless of the path used to access them.
 pub trait FileKeyResolver {
+    /// Resolves `path` to the unique file key it represents.
+    ///
+    /// *Note*: The given path must point to an existing file.
+    ///
+    /// ### Parameters
+    /// * `path`  - The path to the file.
+    ///
+    /// ### Errors
+    /// Returns an [IOError] if:
+    /// * The file that is referred to does not exist.
+    /// * The user is denied (read) access to the file.
+    /// * Another I/O error occurs while accessing the file system.
+    ///
     fn resolve_file_key<P: AsRef<Path>>(path: P) -> Result<u64, IOError>;
 }
 
-/// Tagging struct to enable disjoint locks on a [FileSerial].
+/// Marker struct to enable distinct, disjoint locks on a [FileSerial].
 #[doc(hidden)]
 #[non_exhaustive]
 #[derive(Debug)]
