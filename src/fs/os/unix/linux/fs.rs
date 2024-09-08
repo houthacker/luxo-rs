@@ -1,5 +1,5 @@
-use crate::io::errors::IOError;
-use crate::io::fs::{
+use crate::fs::errors::IOError;
+use crate::fs::{
     FileKeyResolver, FileRwLock, FileRwLockGuard, FileSerial, LockableFile, LuxorFile,
 };
 use nix::errno::Errno;

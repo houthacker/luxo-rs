@@ -6,13 +6,37 @@ use std::cmp::Ordering;
 /// `haystack` must be sorted in natural order of [U] prior to calling this function.
 ///
 /// * `haystack` - A slice of [T] containing the elements that must be searched.
+/// * `needle` - The needle that is searched for.
+/// * `resolver` - A function that resolves a given element [&T] to a [&U].
+///
+/// Returns [Some(usize)] if a matching element has been found, [None] otherwise.
+pub(crate) fn binary_search<T, U: Ord, Resolver>(
+    haystack: &[T],
+    needle: &U,
+    resolver: Resolver,
+) -> Option<usize>
+where
+    Resolver: Fn(&T) -> &U,
+{
+    if haystack.is_empty() {
+        None
+    } else {
+        binary_search_internal(haystack, 0, haystack.len() - 1, needle, resolver)
+    }
+}
+
+#[doc(hidden)]
+/// Recursively searches for the given needle and returns its index within the haystack.
+/// `haystack` must be sorted in natural order of [U] prior to calling this function.
+///
+/// * `haystack` - A slice of [T] containing the elements that must be searched.
 /// * `low` - The lowest index to search.
 /// * `high` - The highest index to search.
 /// * `needle` - The needle that is searched for.
 /// * `resolver` - A function that resolves the given [&T] to a [&U].
 ///
 /// Returns [Some(usize)] if a matching element has been found, [None] otherwise.
-pub(crate) fn binary_search<T, U: Ord, Resolver>(
+fn binary_search_internal<T, U: Ord, Resolver>(
     haystack: &[T],
     low: usize,
     high: usize,
@@ -22,19 +46,41 @@ pub(crate) fn binary_search<T, U: Ord, Resolver>(
 where
     Resolver: Fn(&T) -> &U,
 {
-    if haystack.is_empty() {
-        None
-    } else if high >= low {
+    if high >= low {
         let index = low + (high - low) / 2;
         let middle_element = resolver(&haystack[index]);
 
         match middle_element.cmp(needle) {
             Ordering::Equal => Some(index),
-            Ordering::Less => binary_search(haystack, index + 1, high, needle, resolver),
-            Ordering::Greater => binary_search(haystack, low, index - 1, needle, resolver),
+            Ordering::Less => binary_search_internal(haystack, index + 1, high, needle, resolver),
+            Ordering::Greater => binary_search_internal(haystack, low, index - 1, needle, resolver),
         }
     } else {
         None
+    }
+}
+
+#[doc(hidden)]
+/// Recursively searches the greatest element that might equal but not exceed the given `needle`.
+/// `haystack` must be sorted in the natural order of [U] prior to calling this function.
+///
+/// * `haystack` - A slice of [T] containing the elements that must be searched.
+/// * `needle` - The needle that is searched for.
+/// * `resolver` - A function that resolves a given element [&T] to a [&U].
+///
+/// Returns [Some(usize)] if a matching element has been found, [None] otherwise.
+pub(crate) fn greatest_not_exceeding<T, U: Ord, Resolver>(
+    haystack: &[T],
+    needle: &U,
+    resolver: Resolver,
+) -> Option<usize>
+where
+    Resolver: Fn(&T) -> &U,
+{
+    if haystack.is_empty() {
+        None
+    } else {
+        greatest_not_exceeding_internal(haystack, 0, haystack.len() - 1, needle, resolver)
     }
 }
 
@@ -49,7 +95,7 @@ where
 /// * `resolver` - A function that resolves the given [&T] to a [&U].
 ///
 /// Returns [Some(usize)] if a matching element has been found, [None] otherwise.
-pub(crate) fn greatest_not_exceeding<T, U: Ord, Resolver>(
+fn greatest_not_exceeding_internal<T, U: Ord, Resolver>(
     haystack: &[T],
     low: usize,
     high: usize,
@@ -59,24 +105,47 @@ pub(crate) fn greatest_not_exceeding<T, U: Ord, Resolver>(
 where
     Resolver: Fn(&T) -> &U,
 {
+    let index = low + (high - low) / 2;
+    let middle_element = resolver(&haystack[index]);
+
+    if index == low && needle < middle_element {
+        None
+    } else {
+        let is_candidate = middle_element <= needle;
+        if is_candidate && (index == high || needle < resolver(&haystack[index + 1])) {
+            Some(index)
+        } else if is_candidate {
+            greatest_not_exceeding_internal(haystack, index + 1, high, needle, resolver)
+        } else {
+            greatest_not_exceeding_internal(haystack, low, index, needle, resolver)
+        }
+    }
+}
+
+#[doc(hidden)]
+/// Recursively searches the first element which is considered larger than `needle`.
+/// `haystack` must be sorted in the natural order of [U] prior to calling this function.
+///
+/// <p>Note: `needle` does not need to reside in `haystack`, which allows for searching
+/// sparse haystacks.
+///
+/// * `haystack` - A slice of [T] containing the elements that must be searched.
+/// * `needle` - The needle that is searched for.
+/// * `resolver` - A function that resolves a given element [&T] to a [&U].
+///
+/// Returns [Some(usize)] if a matching element has been found, [None] otherwise.
+pub(crate) fn next_largest<T, U: Ord, Resolver>(
+    haystack: &[T],
+    needle: &U,
+    resolver: Resolver,
+) -> Option<usize>
+where
+    Resolver: Fn(&T) -> &U,
+{
     if haystack.is_empty() {
         None
     } else {
-        let index = low + (high - low) / 2;
-        let middle_element = resolver(&haystack[index]);
-
-        if index == low && needle < middle_element {
-            None
-        } else {
-            let is_candidate = middle_element <= needle;
-            if is_candidate && (index == high || needle < resolver(&haystack[index + 1])) {
-                Some(index)
-            } else if is_candidate {
-                greatest_not_exceeding(haystack, index + 1, high, needle, resolver)
-            } else {
-                greatest_not_exceeding(haystack, low, index, needle, resolver)
-            }
-        }
+        next_largest_internal(haystack, 0, haystack.len() - 1, needle, resolver)
     }
 }
 
@@ -94,7 +163,7 @@ where
 /// * `resolver` - A function that resolves the given [&T] to a [&U].
 ///
 /// Returns [Some(usize)] if a matching element has been found, [None] otherwise.
-pub(crate) fn next_largest<T, U: Ord, Resolver>(
+fn next_largest_internal<T, U: Ord, Resolver>(
     haystack: &[T],
     low: usize,
     high: usize,
@@ -104,23 +173,19 @@ pub(crate) fn next_largest<T, U: Ord, Resolver>(
 where
     Resolver: Fn(&T) -> &U,
 {
-    if haystack.is_empty() {
-        None
-    } else {
-        let index = low + (high - low) / 2;
-        let middle_element = resolver(&haystack[index]);
+    let index = low + (high - low) / 2;
+    let middle_element = resolver(&haystack[index]);
 
-        if low != high {
-            if middle_element <= needle {
-                next_largest(haystack, index + 1, high, needle, resolver)
-            } else {
-                next_largest(haystack, low, index, needle, resolver)
-            }
-        } else if needle < middle_element {
-            Some(index)
+    if low != high {
+        if middle_element <= needle {
+            next_largest_internal(haystack, index + 1, high, needle, resolver)
         } else {
-            None
+            next_largest_internal(haystack, low, index, needle, resolver)
         }
+    } else if needle < middle_element {
+        Some(index)
+    } else {
+        None
     }
 }
 
@@ -137,7 +202,7 @@ mod tests {
         let vec = Vec::<S>::new();
         let needle = 3;
         assert_eq!(
-            binary_search(&vec[..], 0, 0, &needle, |t: &S| -> &i32 { &t.value }),
+            binary_search(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }
@@ -155,9 +220,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 5;
         assert_eq!(
-            binary_search(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            binary_search(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(2)
         );
     }
@@ -175,9 +238,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 1;
         assert_eq!(
-            binary_search(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            binary_search(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(0)
         );
     }
@@ -195,9 +256,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 9;
         assert_eq!(
-            binary_search(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            binary_search(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(4)
         );
     }
@@ -215,9 +274,7 @@ mod tests {
         // Set needle to a non-existing value.
         let needle: i32 = 11;
         assert_eq!(
-            binary_search(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            binary_search(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }
@@ -228,7 +285,7 @@ mod tests {
         let needle = 3;
 
         assert_eq!(
-            greatest_not_exceeding(&vec[..], 0, 0, &needle, |t: &S| -> &i32 { &t.value }),
+            greatest_not_exceeding(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }
@@ -246,9 +303,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 6;
         assert_eq!(
-            greatest_not_exceeding(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            greatest_not_exceeding(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(2)
         );
     }
@@ -266,9 +321,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 1;
         assert_eq!(
-            greatest_not_exceeding(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            greatest_not_exceeding(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(0)
         );
     }
@@ -286,9 +339,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 10;
         assert_eq!(
-            greatest_not_exceeding(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            greatest_not_exceeding(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(4)
         );
     }
@@ -306,9 +357,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 0;
         assert_eq!(
-            greatest_not_exceeding(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            greatest_not_exceeding(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }
@@ -319,7 +368,7 @@ mod tests {
 
         let needle = 3;
         assert_eq!(
-            next_largest(&vec[..], 0, 0, &needle, |t: &S| -> &i32 { &t.value }),
+            next_largest(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }
@@ -337,9 +386,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 3;
         assert_eq!(
-            next_largest(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            next_largest(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(2)
         );
     }
@@ -357,9 +404,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 0;
         assert_eq!(
-            next_largest(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            next_largest(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(0)
         );
     }
@@ -377,9 +422,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 8;
         assert_eq!(
-            next_largest(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            next_largest(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             Some(4)
         );
     }
@@ -397,9 +440,7 @@ mod tests {
         // Set needle to an existing value.
         let needle: i32 = 9;
         assert_eq!(
-            next_largest(&vec[..], 0, vec.len() - 1, &needle, |t: &S| -> &i32 {
-                &t.value
-            }),
+            next_largest(&vec[..], &needle, |t: &S| -> &i32 { &t.value }),
             None
         );
     }

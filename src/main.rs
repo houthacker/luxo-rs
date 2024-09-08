@@ -10,7 +10,7 @@ use tracing_subscriber;
 pub(crate) mod algo;
 
 /// This module contains all I/O related functionality.
-pub(crate) mod io;
+pub(crate) mod fs;
 
 #[tracing::instrument]
 fn main() {

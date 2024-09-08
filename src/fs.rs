@@ -1,5 +1,11 @@
-use crate::io::errors::IOError;
-use crate::io::os::unix::linux::fs::OFDLockGuard;
+/// This module exposes common I/O error types.
+pub mod errors;
+
+/// This module contains OS-specific trait implementations.
+#[doc(hidden)]
+mod os;
+
+use crate::fs::errors::IOError;
 use anyhow::Result;
 use std::cmp::Ordering;
 use std::fs::{File, OpenOptions};
@@ -113,7 +119,7 @@ impl LuxorFile {
 pub trait ReadableFile {
     /// Reads `buf.len()` bytes from this file into `buf`, starting at `offset` in this file.<br>
     /// Returns the number of bytes read.<br>
-    /// Note that similar to [File::read], it is not an error to return with a short read.
+    /// Note that similar to [io::Read::read], it is not an error to return with a short read.
     ///
     /// ### Parameters
     /// * `buf` - The buffer to read into.
@@ -124,7 +130,6 @@ pub trait ReadableFile {
     /// is returned, users must guarantee that no bytes are read.
     /// * An [IOError::Interrupted] is non-fatal, and the read operation should be retried if
     /// there is nothing else to do.
-    #[allow(rustdoc::broken_intra_doc_links)] // `File::read` _does_ exist, but it is a trait implementation.
     fn read(&self, buf: &mut [u8], offset: u64) -> Result<usize, IOError>;
 }
 
@@ -138,7 +143,7 @@ pub trait WritableFile {
     /// * "End of file" has been reached.
     /// When writing beyond the end of the file, the file is appropriately extended and the
     /// intermediate bytes are initialized with the value 0.<br>
-    /// Note that similar to [File::write], it is not an error to return with a short write.
+    /// Note that similar to [io::Write::write], it is not an error to return with a short write.
     ///
     /// ### Parameters
     /// * `buf` - The buffer to write to the file.
@@ -149,7 +154,6 @@ pub trait WritableFile {
     /// In that case, no bytes from `buf` were written to the file.<br>
     /// * An [IOError::Interrupted] is non-fatal, and the write operation should be retried if
     /// there is nothing else to do.
-    #[allow(rustdoc::broken_intra_doc_links)] // `File::write` _does_ exist, but it is a trait implementation.
     fn write(&self, buf: &[u8], offset: u64) -> Result<usize, IOError>;
 }
 
@@ -176,7 +180,7 @@ pub trait FileRwLock {
 
     /// Tries to obtain a shared lock on the resource as described by this [FileRwLock]. If the
     /// lock cannot be obtained immediately, this method returns [None].
-    fn try_read(&self) -> Result<Option<OFDLockGuard>, IOError>;
+    fn try_read(&self) -> Result<Option<Self::Guard>, IOError>;
 
     /// Obtains an exclusive lock on the resource as described by this [FileRwLock], and blocks until
     /// either the lock is obtained or an error occurs.
@@ -187,7 +191,7 @@ pub trait FileRwLock {
 
     /// Tries to obtain an exclusive lock on the resource as described by this [FileRwLock]. If the
     /// lock cannot be obtained immediately, this method returns [None].
-    fn try_write(&self) -> Result<Option<OFDLockGuard>, IOError>;
+    fn try_write(&self) -> Result<Option<Self::Guard>, IOError>;
 }
 
 /// A [FileRwLockGuard] is an RAII guard that will release the owning thread's (read- or write)
@@ -266,9 +270,6 @@ impl FileSerial {
     pub fn find<P: AsRef<Path>>(path: P) -> Result<Arc<FileSerial>, IOError> {
         let span = span!(Level::TRACE, "find");
         let _guard = span.enter();
-
-        //let meta = fs::metadata(path.as_ref())?;
-        //let key = meta.st_ino();
         let key = Self::resolve_file_key(path.as_ref())?;
 
         match find_existing_serial(key) {
