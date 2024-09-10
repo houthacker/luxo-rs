@@ -1,5 +1,5 @@
+use crate::common::errors::error_chain_fmt;
 use nix::errno::Errno;
-use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io::ErrorKind;
@@ -16,6 +16,12 @@ pub enum IOError {
     #[error("Thread interrupted")]
     Interrupted(#[source] std::io::Error),
 
+    #[error("Invalid input")]
+    InvalidInput(#[source] std::io::Error),
+
+    #[error("Unsupported sysconf variable {0}.")]
+    UnsupportedSysconfVariable(String),
+
     #[error("Generic I/O error")]
     Generic(#[source] std::io::Error),
 }
@@ -26,6 +32,7 @@ impl From<std::io::Error> for IOError {
             ErrorKind::PermissionDenied => Self::AccessDeniedError(value),
             ErrorKind::NotFound => Self::FileNotFoundError(value),
             ErrorKind::Interrupted => Self::Interrupted(value),
+            ErrorKind::InvalidInput => Self::InvalidInput(value),
             _ => Self::Generic(value),
         }
     }
@@ -35,17 +42,6 @@ impl From<Errno> for IOError {
     fn from(value: Errno) -> Self {
         IOError::from(std::io::Error::from(value))
     }
-}
-
-fn error_chain_fmt(error: &impl Error, fmt: &mut Formatter<'_>) -> std::fmt::Result {
-    writeln!(fmt, "{}\n", error)?;
-    let mut current = error.source();
-    while let Some(cause) = current {
-        writeln!(fmt, "Caused by:\n\t{}", cause)?;
-        current = cause.source();
-    }
-
-    Ok(())
 }
 
 impl Debug for IOError {

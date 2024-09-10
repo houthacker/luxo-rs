@@ -5,11 +5,16 @@
 use tracing::{event, Level};
 use tracing_subscriber;
 
-#[doc(hidden)]
 /// This module contains all in-memory algorithm implementations used by `luxor`.
+#[doc(hidden)]
 pub(crate) mod algo;
 
+/// This module contains code that is shared between different modules of `luxor`.
+#[doc(hidden)]
+pub mod common;
+
 /// This module contains all I/O related functionality.
+#[doc(hidden)]
 pub(crate) mod fs;
 
 #[tracing::instrument]
@@ -25,9 +30,8 @@ fn main() {
     // Open File Description Locks are non-POSIX. These lock types are used by `luxor` to ensure
     // more flexibility: these locks are associated with an open file description instead of with
     // a process.
-    if !cfg!(target_os = "linux") {
-        panic!("At this time, linux is the only OS supported by luxor.")
-    }
+    #[cfg(not(target_os = "linux"))]
+    panic!("At this time, linux is the only OS supported by luxor.");
 
     event!(Level::INFO, "luxo_rs started.")
 }

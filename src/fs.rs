@@ -1,6 +1,9 @@
 /// This module exposes common I/O error types.
 pub mod errors;
 
+/// This module enables memory mapping of a [LuxorFile].
+pub mod mmap;
+
 /// This module contains OS-specific trait implementations.
 #[doc(hidden)]
 mod os;
@@ -80,12 +83,49 @@ impl LuxorFile {
         self.path.as_path()
     }
 
-    /// Returns the size of this file, in bytes.
+    /// Returns the length of this file, in bytes.
     ///
     /// *Note*: If the file is heavily altered, the returned value may be outdated at the time the
     /// user retrieves it.
-    pub fn size(&self) -> Result<u64, IOError> {
+    pub fn len(&self) -> Result<u64, IOError> {
         Ok(fs::metadata::<&Path>(self.path.as_ref())?.len())
+    }
+
+    /// Truncates or extends this file,updating the size of this file to become `size`.
+    ///
+    /// If the `size` is less than the current file's size, then the file will
+    /// be shrunk. If it is greater than the current file's size, then the file
+    /// will be extended to `size` and have all of the intermediate data filled
+    /// in with 0s.
+    ///
+    /// The file's cursor isn't changed. In particular, if the cursor was at the
+    /// end and the file is shrunk using this operation, the cursor will now be
+    /// past the end.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the file is not opened for writing.
+    /// Also, [IOError::InvalidInput] will be returned if the desired length would cause
+    /// an overflow due to the implementation specifics.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::fs::OpenOptions;
+    /// use fs::LuxorFile;
+    ///
+    /// fn main() -> anyhow::Result<()> {
+    ///     let path = std::Path::new("/tmp/foo.txt");
+    ///     let f = LuxorFile::open(&path, &OpenOptions::new().read(true).write(true))?;
+    ///     f.set_len(10)?;
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Note that this method alters the content of the underlying file, even
+    /// though it takes `&self` rather than `&mut self`.
+    pub fn set_len(&self, size: u64) -> Result<(), IOError> {
+        Ok(self.file.set_len(size)?)
     }
 
     /// Attempts to flush all OS-caches of this file to disk.
@@ -413,6 +453,6 @@ mod tests {
         let luxor_file = result.unwrap();
         let file_path = luxor_file.path();
         assert_eq!(file_path, <TempPath as AsRef<Path>>::as_ref(&path));
-        assert_eq!(luxor_file.size().unwrap(), 0);
+        assert_eq!(luxor_file.len().unwrap(), 0);
     }
 }
