@@ -68,6 +68,34 @@ pub trait MemoryMappable {
     unsafe fn map_shared(&self, region: AlignedFileRegion) -> Result<MappedMemorySegment, IOError>;
 }
 
+/// Memory mapping for [LuxorFile] instances. Used to implement the Write-Ahead Log (which
+/// uses a memory-mapped index).
+impl MemoryMappable for LuxorFile {
+    /// Maps the given `region` of this file into shared, mutable memory.
+    ///
+    /// *Note*: The mapped region need not exist in the file prior to mapping, but it must be backed by actual file
+    /// contents *before* the first time the returned segment is read from or written to.
+    ///
+    /// ### Parameters
+    /// * `region` - The file region to map into memory.
+    ///
+    /// ### Safety
+    /// Mapping file contents is inherently unsafe, since other processes can also write to the associated file, or even
+    /// delete it. There are some manners of protecting against this, but these are not available on all platforms
+    /// alike.
+    ///
+    /// If a mapping is accessed and the associated file region does not exist (anymore), that access will cause a
+    /// panic.
+    unsafe fn map_shared(&self, region: AlignedFileRegion) -> Result<MappedMemorySegment, IOError> {
+        Ok(MappedMemorySegment {
+            data: MmapOptions::new()
+                .offset(region.offset)
+                .len(region.length)
+                .map_mut(&self.file)?,
+        })
+    }
+}
+
 /// Helper struct to create memory-mapped file regions. The `offset` and `length` values are always aligned
 /// with the system page size.
 #[derive(Debug)]
@@ -145,6 +173,139 @@ pub struct MappedMemorySegment {
     data: MmapMut,
 }
 
+impl MappedMemorySegment {
+    /// Returns the length of this segment in bytes.
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Re-interprets the memory region `self[offset..(offset + mem::sizeof::<T>())]` as a [`&T`].
+    ///
+    /// ### Parameters
+    /// * `offset` - The offset in bytes within this segment.
+    ///
+    /// ### Safety
+    /// To ensure some safety, the following preconditions must hold:
+    /// * `offset + mem::size_of::<T>()` must not overflow [usize::MAX].
+    /// * `offset + mem::size_of::<T>()` must not exceed [Self::len].
+    /// * [T] must be `#[repr(C, packed)]`: aligned to a byte and have [`C` Representation](https://doc.rust-lang.org/reference/type-layout.html#the-c-representation)
+    /// If any of these preconditions do *not* hold, this method will panic.
+    ///
+    /// Operating on memory-mapped data can never be fully safe, since conflicting processes might alter the associated
+    /// file region as well, which cannot be controlled by but a single process.
+    ///
+    /// ### Example
+    /// ```
+    /// use crate::fs::LuxorFile;
+    /// use crate::fs::mmap::MappedMemorySegment;
+    ///
+    /// #[repr(C)]
+    /// struct Child {
+    ///     child_field: bool,
+    /// }
+    ///
+    /// #[repr(C)]
+    /// struct MyStruct {
+    ///     child: Child,
+    ///     other_field: u64,
+    /// }
+    ///
+    /// /// *Note*: error checking removed for brevity.
+    /// pub fn main() {
+    ///     // Create an empty temporary file.
+    ///     let path = tempfile::file::NamedTempFile::new().unwrap().into_temp_path();
+    ///
+    ///     let file = LuxorFile::open(
+    ///         &path,
+    ///         &OpenOptions::new().read(true).write(true).create(false),
+    ///     )
+    ///     .unwrap();
+    ///
+    ///     // Set file length so we can access some shared memory.
+    ///     let page_size = unsafe { sys_page_size() } as u64;
+    ///     file.set_len(page_size).unwrap();
+    ///
+    ///     // Get the segment to play with.
+    ///     let mut segment =
+    ///         unsafe { file.map_shared(AlignedFileRegion::new_aligned(0, page_size)) }.unwrap();
+    ///
+    ///     // Get a MyStruct instance from the segment
+    ///     let my_struct = unsafe { segment.transmute_unchecked::<MyStruct>(0) };
+    ///
+    ///     // Use it like any other regular struct.
+    ///     println!("my_struct.other_field = {}", my_struct.other_field);
+    /// }
+    /// ```
+    pub unsafe fn transmute_unchecked<T: Sized>(&self, offset: usize) -> &T {
+        let (_head, body, _tail) = self.data[offset..].align_to();
+
+        &body[0]
+    }
+
+    /// Re-interprets the memory region `self[offset..(offset + mem::sizeof::<T>())]` as a [`&mut T`].
+    ///
+    /// ### Parameters
+    /// * `offset` - The offset in bytes within this segment.
+    ///
+    /// ### Safety
+    /// To ensure some safety, the following preconditions must hold:
+    /// * `offset + sizeof(T)` must not overflow [usize::MAX].
+    /// * `offset + sizeof(T)` must not exceed [Self::len].
+    /// * [T] must be `#[repr(C, packed)]`: aligned to a byte and have [`C` Representation](https://doc.rust-lang.org/reference/type-layout.html#the-c-representation)
+    /// If any of these preconditions do *not* hold, this method will panic.
+    ///
+    /// Operating on memory-mapped data can never be fully safe, since conflicting processes might alter the associated
+    /// file region as well, which cannot be controlled by but a single process.
+    ///
+    /// ### Example
+    /// ```
+    /// use crate::fs::LuxorFile;
+    /// use crate::fs::mmap::MappedMemorySegment;
+    ///
+    /// #[repr(C)]
+    /// struct Child {
+    ///     child_field: bool,
+    /// }
+    ///
+    /// #[repr(C)]
+    /// struct MyStruct {
+    ///     child: Child,
+    ///     other_field: u64,
+    /// }
+    ///
+    /// /// *Note*: error checking removed for brevity.
+    /// pub fn main() {
+    ///     // Create an empty temporary file.
+    ///     let path = tempfile::file::NamedTempFile::new().unwrap().into_temp_path();
+    ///
+    ///     let file = LuxorFile::open(
+    ///         &path,
+    ///         &OpenOptions::new().read(true).write(true).create(false),
+    ///     )
+    ///     .unwrap();
+    ///
+    ///     // Set file length so we can access some shared memory.
+    ///     let page_size = unsafe { sys_page_size() } as u64;
+    ///     file.set_len(page_size).unwrap();
+    ///
+    ///     // Get the segment to play with.
+    ///     let mut segment =
+    ///         unsafe { file.map_shared(AlignedFileRegion::new_aligned(0, page_size)) }.unwrap();
+    ///
+    ///     // Get a MyStruct instance from the segment
+    ///     let my_struct = unsafe { segment.transmute_as_mut_unchecked::<MyStruct>(0) };
+    ///
+    ///     // Use it like any other regular struct.
+    ///     my_struct.other_field = 1337;
+    /// }
+    /// ```
+    pub unsafe fn transmute_as_mut_unchecked<T: Sized>(&mut self, offset: usize) -> &mut T {
+        let (_head, body, _tail) = self.data[offset..].align_to_mut();
+
+        &mut body[0]
+    }
+}
+
 impl AsMut<[u8]> for MappedMemorySegment {
     #[inline]
     fn as_mut(&mut self) -> &mut [u8] {
@@ -174,20 +335,6 @@ impl Debug for MappedMemorySegment {
             .field("ptr", &self.data.as_ptr())
             .field("len", &self.data.len())
             .finish()
-    }
-}
-
-/// Implement memory mapping for [LuxorFile] instances, since these are used to implement the Write-Ahead Log (which
-/// uses a memory-mapped index).
-impl MemoryMappable for LuxorFile {
-    unsafe fn map_shared(&self, region: AlignedFileRegion) -> Result<MappedMemorySegment, IOError> {
-        if self.len()? < region.offset + (region.length - 1) as u64 {}
-        Ok(MappedMemorySegment {
-            data: MmapOptions::new()
-                .offset(region.offset)
-                .len(region.length)
-                .map_mut(&self.file)?,
-        })
     }
 }
 
@@ -224,6 +371,8 @@ mod tests {
         );
     }
 
+    /// Proves that a non-existing file region can be mapped and that the region can be accessed once the file has
+    /// backing contents.
     #[test]
     fn mmap_extend_file_after_creation() {
         let path = NamedTempFile::new().unwrap().into_temp_path();
@@ -270,7 +419,7 @@ mod tests {
         drop(file);
 
         // Mutate the data, and flush the segment.
-        let mut data = segment.as_mut();
+        let data = segment.as_mut();
         data.fill(1u8);
 
         // Use the `data` private field to flush, since we don't want to expose this method
@@ -285,5 +434,162 @@ mod tests {
 
         // The buffer must contain the ones we wrote to it earlier.
         assert_eq!(&buf, &[1u8; 4096]);
+    }
+
+    /// Proves that a region of mapped memory can be transmuted to an immutable struct instance.
+    #[test]
+    fn transmute_unchecked_from_segment() {
+        #[derive(Eq, PartialEq, Debug)]
+        #[repr(C)]
+        struct MyStruct {
+            field_one: u64,
+            field_two: bool,
+        }
+
+        // The path to the file we're going to test with.
+        let path = NamedTempFile::new().unwrap().into_temp_path();
+
+        let file = LuxorFile::open(
+            &path,
+            &OpenOptions::new().read(true).write(true).create(false),
+        )
+        .unwrap();
+
+        // Set file length so we can access some shared memory.
+        file.set_len(unsafe { sys_page_size() } as u64).unwrap();
+
+        // Get the segment to play with.
+        let segment = unsafe { file.map_shared(AlignedFileRegion::new_aligned(0, 4096)) }.unwrap();
+
+        // Transmute a Parent instance from the segment
+        let my_struct = unsafe { segment.transmute_unchecked::<MyStruct>(0) };
+        assert_eq!(
+            my_struct,
+            &MyStruct {
+                field_one: 0,
+                field_two: false,
+            }
+        );
+    }
+
+    /// Proves that updates to a struct that is transmuted from a mapped memory segment are reflected in
+    /// the underlying file.
+    #[test]
+    fn transmute_as_mut_cycle() {
+        // Create two structs with a parent-child relation
+
+        #[derive(Eq, PartialEq, Debug)]
+        #[repr(C)]
+        struct Child {
+            salt: u32,
+            checksum: u64,
+        }
+
+        #[derive(Eq, PartialEq, Debug)]
+        #[repr(C)]
+        struct Parent {
+            child: Child,
+            is_stale: bool,
+        }
+
+        impl Parent {
+            fn is_stale(&self) -> bool {
+                self.is_stale
+            }
+        }
+
+        // The path to the file we're going to test with.
+        let path = NamedTempFile::new().unwrap().into_temp_path();
+
+        // In a designated scope (so they'll be dropped after), create a file and a mapped memory segment.
+        // Transmute a region of the segment to a Parent instance and update some values.
+        {
+            let file = LuxorFile::open(
+                &path,
+                &OpenOptions::new().read(true).write(true).create(false),
+            )
+            .unwrap();
+
+            // Set file length so we can access some shared memory.
+            file.set_len(unsafe { sys_page_size() } as u64).unwrap();
+
+            // Get the segment to play with.
+            let mut segment =
+                unsafe { file.map_shared(AlignedFileRegion::new_aligned(0, 4096)) }.unwrap();
+
+            // Transmute a Parent instance from the segment
+            let parent = unsafe { segment.transmute_as_mut_unchecked::<Parent>(0) };
+            assert_eq!(
+                parent,
+                &Parent {
+                    child: Child {
+                        salt: 0,
+                        checksum: 0
+                    },
+                    is_stale: false
+                }
+            );
+
+            // Update the parent, flush the segment.
+            parent.is_stale = true;
+            parent.child.salt = 42;
+            parent.child.checksum = 1337;
+
+            // Flush the data to disk so a new LuxorFile of the same path will read this data.
+            segment.data.flush().unwrap();
+        }
+
+        // Now that the original file and memory segment have been dropped, create a new file and compare the Parent
+        // we read from a memory segment associated with the file.
+        let file = LuxorFile::open(
+            &path,
+            &OpenOptions::new().read(true).write(true).create(false),
+        )
+        .unwrap();
+
+        let mut segment =
+            unsafe { file.map_shared(AlignedFileRegion::new_aligned(0, 4096)) }.unwrap();
+
+        let parent = unsafe { segment.transmute_as_mut_unchecked::<Parent>(0) };
+
+        // This Parent must equal the one we wrote to the previous memory segment.
+        assert_eq!(
+            parent,
+            &Parent {
+                child: Child {
+                    salt: 42,
+                    checksum: 1337
+                },
+                is_stale: true
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds: the len is 0 but the index is 0")]
+    fn transmute_out_of_bounds_access() {
+        #[derive(Eq, PartialEq, Debug)]
+        #[repr(C)]
+        struct Test {
+            field: u64,
+            another_field: bool,
+        }
+
+        // The path to the file we're going to test with.
+        let path = NamedTempFile::new().unwrap().into_temp_path();
+
+        // Create an empty file.
+        let file = LuxorFile::open(
+            &path,
+            &OpenOptions::new().read(true).write(true).create(false),
+        )
+        .unwrap();
+
+        // Get the segment to play with.
+        let mut segment =
+            unsafe { file.map_shared(AlignedFileRegion::new(0, 0).unwrap()) }.unwrap();
+
+        // panic!
+        let _ = unsafe { segment.transmute_as_mut_unchecked::<Test>(0) };
     }
 }
