@@ -1,5 +1,4 @@
 use crate::common::errors::error_chain_fmt;
-use nix::errno::Errno;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io::ErrorKind;
@@ -19,9 +18,6 @@ pub enum IOError {
     #[error("Invalid input")]
     InvalidInput(#[source] std::io::Error),
 
-    #[error("Unsupported sysconf variable {0}.")]
-    UnsupportedSysconfVariable(String),
-
     #[error("Generic I/O error")]
     Generic(#[source] std::io::Error),
 }
@@ -35,12 +31,6 @@ impl From<std::io::Error> for IOError {
             ErrorKind::InvalidInput => Self::InvalidInput(value),
             _ => Self::Generic(value),
         }
-    }
-}
-
-impl From<Errno> for IOError {
-    fn from(value: Errno) -> Self {
-        IOError::from(std::io::Error::from(value))
     }
 }
 

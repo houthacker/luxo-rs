@@ -17,6 +17,10 @@ pub mod common;
 #[doc(hidden)]
 pub(crate) mod fs;
 
+/// This module contains al OS-specific extensions.
+#[doc(hidden)]
+pub(crate) mod os;
+
 #[tracing::instrument]
 fn main() {
     let subscriber = tracing_subscriber::fmt()

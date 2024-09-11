@@ -1,41 +1,10 @@
 use crate::common::errors::LuxorError;
 use crate::fs::errors::IOError;
 use crate::fs::LuxorFile;
-use cfg_if::cfg_if;
+use crate::os::sys_page_size;
 use memmap2::{MmapMut, MmapOptions};
-use nix::unistd;
-use nix::unistd::SysconfVar;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
-use tracing::{event, span, Level};
-
-const FALLBACK_MEM_PAGE_SIZE: usize = 4096;
-
-/// Retrieves the memory page size at compile time and panics if it cannot be retrieved.
-#[doc(hidden)]
-#[inline]
-unsafe fn sys_page_size() -> usize {
-    let span = span!(Level::TRACE, "sys_page_size");
-    let _guard = span.enter();
-
-    cfg_if! {
-        if #[cfg(target_family = "unix")] {
-            match unistd::sysconf(SysconfVar::PAGE_SIZE) {
-                Ok(Some(value)) => value as usize,
-                Ok(None) => {
-                    event!(Level::TRACE, "sysconf(_SC_PAGE_SIZE) variable not supported, using fallback page size.");
-                    FALLBACK_MEM_PAGE_SIZE
-                },
-                Err(errno) => {
-                    event!(Level::TRACE, "Error while reading sysconf(_SC_PAGE_SIZE): {}. Using fallback page size.", errno.desc());
-                    FALLBACK_MEM_PAGE_SIZE
-                }
-            }
-        } else {
-            unimplemented!("Retrieving the page size is not yet supported on this platform.")
-        }
-    }
-}
 
 /// Trait to enable support for file-backed memory mapping.
 pub trait MemoryMappable {
@@ -118,7 +87,7 @@ impl AlignedFileRegion {
     /// * Returns a [LuxorError::AlignmentError] if `offset` is not aligned to the OS page size.
     /// * Returns a [LuxorError::AlignmentError] if `length` is not aligned to the OS page size.
     pub fn new(offset: u64, length: usize) -> Result<AlignedFileRegion, LuxorError> {
-        let page_size = unsafe { sys_page_size() };
+        let page_size = sys_page_size();
         if offset % page_size as u64 != 0 {
             Err(LuxorError::AlignmentError {
                 value: offset.to_string(),
@@ -142,17 +111,8 @@ impl AlignedFileRegion {
     /// or the next multiple of the system page size.
     /// * `min_length` - The minimum required region length. The aligned length is guaranteed to be either this value
     /// or the next multiple of the system page size.
-    ///
-    /// ### Examples
-    /// ```
-    /// /// How to retrieve the current system page size on Unix. For Windows systems, use for example
-    /// /// the `page_size` crate.
-    /// fn main() {
-    ///     let page_size = unsafe { nix::unistd::sysconf(nix::unistd::SysconfVar::PAGE_SIZE).unwrap() };
-    /// }
-    /// ```
     pub fn new_aligned(min_offset: u64, min_length: usize) -> AlignedFileRegion {
-        let page_size = unsafe { sys_page_size() };
+        let page_size = sys_page_size();
         let aligned_offset = min_offset.next_multiple_of(page_size as u64);
         let aligned_length = min_length.next_multiple_of(page_size);
 
@@ -409,7 +369,7 @@ mod tests {
         .unwrap();
 
         // Set file length so we can access some shared memory.
-        file.set_len(unsafe { sys_page_size() } as u64).unwrap();
+        file.set_len(sys_page_size() as u64).unwrap();
 
         // Get the segment to play with.
         let mut segment =
@@ -456,7 +416,7 @@ mod tests {
         .unwrap();
 
         // Set file length so we can access some shared memory.
-        file.set_len(unsafe { sys_page_size() } as u64).unwrap();
+        file.set_len(sys_page_size() as u64).unwrap();
 
         // Get the segment to play with.
         let segment = unsafe { file.map_shared(AlignedFileRegion::new_aligned(0, 4096)) }.unwrap();
@@ -511,7 +471,7 @@ mod tests {
             .unwrap();
 
             // Set file length so we can access some shared memory.
-            file.set_len(unsafe { sys_page_size() } as u64).unwrap();
+            file.set_len(sys_page_size() as u64).unwrap();
 
             // Get the segment to play with.
             let mut segment =

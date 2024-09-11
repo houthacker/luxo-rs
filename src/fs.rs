@@ -4,10 +4,6 @@ pub mod errors;
 /// This module enables memory mapping of a [LuxorFile].
 pub mod mmap;
 
-/// This module contains OS-specific trait implementations.
-#[doc(hidden)]
-mod os;
-
 use crate::fs::errors::IOError;
 use anyhow::Result;
 use std::cmp::Ordering;
